@@ -1,0 +1,152 @@
+---
+title: "Practical Machine Learning"
+author: "Alok Tripathi"
+date: "October 23, 2018"
+output: html_document
+---
+##Summary
+
+The goal of this project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. 
+
+The model which performed best was a random forest model, which achieved an estimated out-of-sample accuracy of about 99.8% using both 10-fold cross-validation and a separate sub-sampled test set. I used this model to successfully predict all the classes of all 20 test samples in the automatically graded component of this course.
+
+```{r Loading Libraries}
+library(caret)
+library(rattle)
+```
+
+## Loading the data
+
+```{r Train Data loading}
+library(RCurl)
+setInternet2(TRUE)
+Train.Data <- read.csv(textConnection(getURL("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")))
+dim(Train.Data)
+```
+
+```{r Test data loading}
+Test.Data <- read.csv(textConnection(getURL("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")))
+dim(Test.Data)
+```
+
+```{r Exploring Data}
+str(Train.Data)
+```
+
+The training data set is made of `r nrow(Train.Data) ` observations on `r ncol(Train.Data) ` columns. We can notice that many columns have NA values or blank values on almost every observation. So we will remove them, because they will not produce any information. The first seven columns give information about the people who did the test, and also timestamps. We will not take them in our model.
+
+```{r Cleaning the train set data}
+ColToRemove <- which(colSums(is.na(Train.Data) |Train.Data=="")>0.9*dim(Train.Data)[1]) 
+TrainDataClean <- Train.Data[,-ColToRemove]
+TrainDataClean <- TrainDataClean[,-c(1:7)]
+dim(TrainDataClean)
+```
+
+```{r Cleaning the test data}
+ColToRemove <- which(colSums(is.na(Test.Data) |Test.Data=="")>0.9*dim(Test.Data)[1]) 
+TestDataClean <- Test.Data[,-ColToRemove]
+TestDataClean <- TestDataClean[,-1]
+dim(TestDataClean)
+```
+
+After cleaning, the new training data set has only `r dim(TrainDataClean)[2] ` columns.
+
+```{r Partition the data}
+set.seed(12345)
+inTrain1 <- createDataPartition(TrainDataClean$classe, p=0.75, list=FALSE)
+Train1 <- TrainDataClean[inTrain1,]
+Test1 <- TrainDataClean[-inTrain1,]
+dim(Train1)
+dim(Test1)
+```
+
+We will test 3 different models :
+* Classification Tree
+* Random Forest
+* Gradient Boosting
+
+To limit the effects of overfitting, and improve the efficicency of the models, we will use the *cross-validation technique. We will use 5 folds.
+
+# Train with Classification Tree
+
+```{r Classification Tree}
+library(e1071)
+library("rpart.plot")
+trControl <- trainControl(method="cv", number=5)
+model_CT <- train(classe~., data=Train1, method="rpart", trControl=trControl)
+fancyRpartPlot(model_CT$finalModel)
+```
+
+```{r Pridict}
+trainpred <- predict(model_CT,newdata=Test1)
+
+confMatCT <- confusionMatrix(Test1$classe,trainpred)
+
+# display confusion matrix and model accuracy
+confMatCT$table
+
+confMatCT$overall[1]
+```
+
+We can notice that the accuracy of this first model is very low (about 55%). This means that the outcome class will not be predicted very well by the other predictors.
+
+# Training with Random Forest
+
+```{r Random Forest}
+model_RF <- train(classe~., data=Train1, method="rf", trControl=trControl, verbose=FALSE)
+plot(model_RF,main="Accuracy of Random forest model by number of predictors")
+```
+
+```{r Predict with Random forest}
+trainpred <- predict(model_RF,newdata=Test1)
+
+confMatRF <- confusionMatrix(Test1$classe,trainpred)
+
+# display confusion matrix and model accuracy
+confMatRF$table
+
+confMatRF$overall[1]
+```
+
+```{r Model error plot}
+plot(model_RF$finalModel,main="Model error of Random forest model by number of trees")
+```
+
+```{r Important Variables}
+MostImpVars <- varImp(model_RF)
+MostImpVars
+```
+
+With random forest, we reach an accuracy of 99.3% using cross-validation with 5 steps. This is very good. But let’s see what we can expect with Gradient boosting.
+
+We can also notice that the optimal number of predictors, i.e. the number of predictors giving the highest accuracy, is 27. There is no significal increase of the accuracy with 2 predictors and 27, but the slope decreases more with more than 27 predictors (even if the accuracy is still very good). The fact that not all the accuracy is worse with all the available predictors lets us suggest that there may be some dependencies between them.
+
+## Training with Gradient boosting 
+
+```{r Gradient boosting}
+model_GBM <- train(classe~., data=Train1, method="gbm", trControl=trControl, verbose=FALSE)
+plot(model_GBM)
+
+```
+
+```{r Predict with GB model}
+trainpred <- predict(model_GBM,newdata=Test1)
+
+confMatGBM <- confusionMatrix(Test1$classe,trainpred)
+confMatGBM$table
+
+confMatGBM$overall[1]
+
+```
+
+Precision with 5 folds is 95.9%.
+
+## Conclusion
+
+This shows that the random forest model is the best one. We will then use it to predict the values of classe for the test data set.
+
+```{r Predict on test data set}
+FinalTestPred <- predict(model_RF,newdata=TestDataClean)
+FinalTestPred
+```
+
